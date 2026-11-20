@@ -1,0 +1,21 @@
+Condition,SNR_dB,Model,Accuracy,Family,Training
+Clean,,Clean-trained SVM,0.6575,SVM,Clean-trained
+Clean,,Noise-augmented SVM,0.65,SVM,Noise-augmented
+20 dB,20.0,Clean-trained SVM,0.4216666666666667,SVM,Clean-trained
+20 dB,20.0,Noise-augmented SVM,0.6266666666666667,SVM,Noise-augmented
+10 dB,10.0,Clean-trained SVM,0.25083333333333335,SVM,Clean-trained
+10 dB,10.0,Noise-augmented SVM,0.6025,SVM,Noise-augmented
+5 dB,5.0,Clean-trained SVM,0.20083333333333334,SVM,Clean-trained
+5 dB,5.0,Noise-augmented SVM,0.5441666666666667,SVM,Noise-augmented
+0 dB,0.0,Clean-trained SVM,0.16416666666666666,SVM,Clean-trained
+0 dB,0.0,Noise-augmented SVM,0.4625,SVM,Noise-augmented
+Clean,,Clean-trained CNN,0.8833333333333333,CNN,Clean-trained
+Clean,,Noise-augmented CNN,0.9508333333333333,CNN,Noise-augmented
+20 dB,20.0,Clean-trained CNN,0.7916666666666666,CNN,Clean-trained
+20 dB,20.0,Noise-augmented CNN,0.9391666666666667,CNN,Noise-augmented
+10 dB,10.0,Clean-trained CNN,0.6625,CNN,Clean-trained
+10 dB,10.0,Noise-augmented CNN,0.9133333333333333,CNN,Noise-augmented
+5 dB,5.0,Clean-trained CNN,0.49333333333333335,CNN,Clean-trained
+5 dB,5.0,Noise-augmented CNN,0.8975,CNN,Noise-augmented
+0 dB,0.0,Clean-trained CNN,0.3516666666666667,CNN,Clean-trained
+0 dB,0.0,Noise-augmented CNN,0.8458333333333333,CNN,Noise-augmented

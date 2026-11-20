@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Command Lab</title>
+  <style>
+    :root { color-scheme: light; --ink:#15231e; --muted:#66766e; --green:#176b4b; --line:#dce6df; --paper:#f4f7f3; }
+    * { box-sizing:border-box }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    main { width:min(900px, calc(100% - 32px)); margin:56px auto; }
+    .eyebrow { color:var(--green); font-size:12px; font-weight:800; letter-spacing:.14em; text-transform:uppercase }
+    h1 { margin:8px 0 8px; font-size:clamp(32px,6vw,50px); letter-spacing:-.045em; line-height:1.1 }
+    .intro { max-width:620px; color:var(--muted); margin:0 0 30px }
+    .card { padding:28px; background:#fff; border:1px solid var(--line); border-radius:20px; box-shadow:0 12px 35px #193c2910 }
+    .modes { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px }
+    .mode { border:1px solid var(--line); border-radius:15px; padding:18px; background:#fbfdfb }
+    .mode h2 { font-size:17px; margin:0 0 5px }
+    .mode p { margin:0; color:var(--muted); font-size:14px }
+    button,select,.file { font:inherit }
+    button { border:0; border-radius:10px; padding:11px 16px; background:var(--green); color:white; font-weight:700; cursor:pointer }
+    button.secondary { color:var(--green); border:1px solid #b8d5c5; background:#f1f8f3 }
+    button:disabled { opacity:.55; cursor:wait }
+    .controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px }
+    .file { max-width:100%; color:var(--muted); font-size:14px }
+    select { border:1px solid var(--line); border-radius:9px; background:white; padding:10px 32px 10px 12px; color:var(--ink) }
+    label { font-size:13px; color:var(--muted); font-weight:650 }
+    .divider { height:1px; background:var(--line); margin:24px 0 }
+    .result { display:none; margin-top:22px; padding:20px; border-radius:14px; background:#eff8f1; border:1px solid #cfe5d4 }
+    .result.show { display:block }
+    .result.error { background:#fff5f1; border-color:#f0d3c8 }
+    .result-title { color:var(--muted); font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.08em }
+    .command { font-size:40px; font-weight:800; letter-spacing:-.04em; text-transform:capitalize; margin:0 }
+    .meta { color:var(--muted); font-size:13px }
+    .scores { display:grid; gap:9px; margin-top:17px }
+    .score-row { display:grid; grid-template-columns:60px 1fr 48px; gap:10px; align-items:center; font-size:13px }
+    .track { height:8px; background:#dce9df; border-radius:8px; overflow:hidden }
+    .fill { height:100%; background:var(--green); border-radius:8px }
+    .hint { color:var(--muted); font-size:13px; margin:14px 0 0 }
+    #recording { color:#a0432d; font-size:13px; font-weight:700; display:none }
+    @media(max-width:650px) { main{margin:30px auto}.card{padding:19px}.modes{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Speech recognition · 16 kHz</div>
+  <h1>Voice Command Lab</h1>
+  <p class="intro">Try one of the six commands from your trained model. Record a short clip or upload a WAV file to see the prediction and model scores.</p>
+  <section class="card">
+    <label for="model">Model</label>
+    <select id="model" {% if not models %}disabled{% endif %}>
+      {% for model in models %}<option value="{{ model }}">{{ model }}</option>{% endfor %}
+    </select>
+    {% if not models %}<p class="hint">No trained model is loaded yet. Put the exported model files in the <code>models/</code> folder, then reload this page.</p>{% endif %}
+    <div class="divider"></div>
+    <div class="modes">
+      <div class="mode">
+        <h2>Use your microphone</h2>
+        <p>Allow microphone access, then say one command clearly.</p>
+        <div class="controls"><button id="record" class="secondary" {% if not models %}disabled{% endif %}>Start recording</button><span id="recording">● Recording…</span></div>
+      </div>
+      <div class="mode">
+        <h2>Upload a recording</h2>
+        <p>Choose a WAV clip. The app uses the first second.</p>
+        <div class="controls"><input id="audioFile" class="file" type="file" accept="audio/wav,.wav" {% if not models %}disabled{% endif %}><button id="upload" {% if not models %}disabled{% endif %}>Test clip</button></div>
+      </div>
+    </div>
+    <div id="result" class="result" aria-live="polite"></div>
+    <p class="hint">Speak close to the microphone with minimal background noise. This classifier always maps a one second clip to one of: up, down, left, right, go, or stop.</p>
+    {% if has_results %}<p class="hint">Training evaluation: <a href="/results.csv">Download the SVM vs CNN accuracy results</a>.</p>{% endif %}
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const resultBox = $('result');
+  let stream, audioContext, processor, source, micBuffers = [], micRate = 0, recordTimer;
+
+  function showError(message) {
+    resultBox.className = 'result show error';
+    resultBox.innerHTML = `<div class="result-title">Could not test audio</div><div>${escapeHtml(message)}</div>`;
+  }
+  function escapeHtml(value) { const el = document.createElement('span'); el.textContent = value; return el.innerHTML; }
+  function wavBlob(samples, sampleRate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2), view = new DataView(buffer);
+    const write = (offset, text) => [...text].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+    write(0,'RIFF'); view.setUint32(4,36+samples.length*2,true); write(8,'WAVE'); write(12,'fmt ');
+    view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+    view.setUint32(24,sampleRate,true); view.setUint32(28,sampleRate*2,true); view.setUint16(32,2,true);
+    view.setUint16(34,16,true); write(36,'data'); view.setUint32(40,samples.length*2,true);
+    for (let i=0;i<samples.length;i++) { const s=Math.max(-1,Math.min(1,samples[i])); view.setInt16(44+i*2,s<0?s*32768:s*32767,true); }
+    return new Blob([buffer], {type:'audio/wav'});
+  }
+  async function submitAudio(blob, filename='recording.wav') {
+    const form = new FormData(); form.append('audio', blob, filename); form.append('model', $('model').value);
+    const button = $('upload'); button.disabled = true; $('record').disabled = true;
+    resultBox.className = 'result show'; resultBox.textContent = 'Analyzing audio…';
+    try {
+      const response = await fetch('/api/predict', {method:'POST', body:form});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Request failed.');
+      const rows = Object.entries(data.scores).sort((a,b)=>b[1]-a[1]).map(([name,score]) =>
+        `<div class="score-row"><span>${escapeHtml(name)}</span><div class="track"><div class="fill" style="width:${Math.round(score*100)}%"></div></div><span>${(score*100).toFixed(1)}%</span></div>`).join('');
+      resultBox.className = 'result show';
+      resultBox.innerHTML = `<div class="result-title">Predicted command</div><p class="command">${escapeHtml(data.command)}</p><div class="meta">${escapeHtml(data.model)} · model confidence scores</div><div class="scores">${rows}</div>`;
+    } catch (error) { showError(error.message); }
+    finally { button.disabled = false; $('record').disabled = false; }
+  }
+  $('upload').addEventListener('click', () => {
+    const file = $('audioFile').files[0];
+    if (!file) return showError('Choose a WAV file first.');
+    submitAudio(file, file.name);
+  });
+  $('record').addEventListener('click', async () => {
+    const button = $('record');
+    if (processor) {
+      clearTimeout(recordTimer);
+      processor.disconnect(); source.disconnect(); stream.getTracks().forEach(t=>t.stop()); await audioContext.close();
+      const all = new Float32Array(micBuffers.reduce((n,b)=>n+b.length,0)); let offset=0;
+      for (const b of micBuffers) { all.set(b,offset); offset+=b.length; }
+      processor=null; button.textContent='Start recording'; $('recording').style.display='none';
+      return submitAudio(wavBlob(all,micRate));
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1, echoCancellation:true, noiseSuppression:true}});
+      audioContext = new AudioContext(); micRate = audioContext.sampleRate; micBuffers = [];
+      source = audioContext.createMediaStreamSource(stream); processor = audioContext.createScriptProcessor(4096,1,1);
+      processor.onaudioprocess = (event) => micBuffers.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      source.connect(processor); processor.connect(audioContext.destination);
+      button.textContent='Finish recording'; $('recording').style.display='inline';
+      // Automatically finish after one second, matching the notebook's input size.
+      recordTimer = setTimeout(async () => {
+        if (!processor) return;
+        processor.disconnect(); source.disconnect(); stream.getTracks().forEach(t=>t.stop()); await audioContext.close();
+        const all = new Float32Array(micBuffers.reduce((n,b)=>n+b.length,0)); let offset=0;
+        for (const b of micBuffers) { all.set(b,offset); offset+=b.length; }
+        processor=null; button.textContent='Start recording'; $('recording').style.display='none';
+        submitAudio(wavBlob(all,micRate));
+      }, 1000);
+    } catch (error) { showError('Microphone access failed. Check browser permissions and try again.'); }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+services:
+  voice-command-app:
+    build: .
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
